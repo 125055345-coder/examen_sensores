@@ -101,6 +101,42 @@ def generar_graficas(df_num, alertas_num):
     guardar(fig, "05_alertas_por_hora.png")
 
 
+def datos_de_apoyo(df, df_num):
+    """Datos de calidad y contexto que se citan en informe.md."""
+    print("\n=== 8. Datos de apoyo (calidad y contexto) ===")
+    temp = df_num["temperatura_c"]
+    vib = pd.to_numeric(df["vibracion_mm_s"])
+    fechas = pd.to_datetime(df["fecha_hora"], format="%d/%m/%y %H:%M")
+    print(f"Tamaño del archivo: {RUTA_CSV.stat().st_size / 1024**2:.2f} MiB")
+    print(f"Periodo: {fechas.min()} a {fechas.max()}")
+    por_sensor = df["id_sensor"].value_counts()
+    print(f"Lecturas por sensor: mínimo {por_sensor.min()}, "
+          f"máximo {por_sensor.max()}")
+    print(f"Valores nulos: {int(df.isna().sum().sum())}")
+    print(f"id_registro duplicados: {int(df['id_registro'].duplicated().sum())}")
+    print(f"Rango de temperatura: {temp.min()} a {temp.max()} °C")
+    print(f"Rango de vibración: {vib.min()} a {vib.max()} mm/s")
+    print(f"Correlación temperatura-vibración: {temp.corr(vib):.3f}")
+
+    # Rachas de alertas consecutivas por sensor (una lectura por minuto)
+    o = df_num.assign(fecha=fechas, alerta=temp > UMBRAL_ALERTA_C)
+    o = o.sort_values(["id_sensor", "fecha"])
+    previa = o.groupby("id_sensor")["alerta"].shift(1, fill_value=False)
+    seguidas = int((o["alerta"] & previa).sum())
+    total = int(o["alerta"].sum())
+    racha_id = (o["alerta"] != previa).groupby(o["id_sensor"]).cumsum()
+    racha_max = o[o["alerta"]].groupby(
+        [o["id_sensor"], racha_id]).size().max()
+    print(f"Racha máxima de alertas consecutivas en un sensor: {racha_max}")
+    print(f"Alertas cuya lectura anterior también fue alerta: {seguidas} "
+          f"de {total} ({seguidas / total * 100:.1f} %)")
+    print(f"Alertas aisladas: {total - seguidas} "
+          f"({(total - seguidas) / total * 100:.1f} %)")
+    top = o[o["alerta"]]["id_sensor"].value_counts()
+    print(f"Sensor con más alertas: {top.index[0]} ({top.iloc[0]}); "
+          f"con menos: {top.index[-1]} ({top.iloc[-1]})")
+
+
 def main():
     # Se lee todo como texto para exportar las alertas con las columnas
     # originales sin cambios de formato; la temperatura se convierte aparte.
@@ -153,6 +189,8 @@ def main():
     # 7. Gráficas complementarias
     print("\n=== 7. Gráficas generadas ===")
     generar_graficas(df_num, df_num[temp > UMBRAL_ALERTA_C])
+
+    datos_de_apoyo(df, df_num)
 
 
 if __name__ == "__main__":
